@@ -7,19 +7,28 @@ import errno
 
 
 class Words:
-    def __init__(self, words, words2i):
+    def __init__(self, words):
         self.words = words
-        self.words2i = words2i
+        self.words2i = {words[i] : i for i in range(len(words))}
+
+
+log_enable = False
+def log(msg):
+    if log_enable:
+        print(msg)
 
 
 def get_words(filename: str) -> tuple:
     with open(filename, "r") as file:
         words = file.read().split('\n')
-        return Words(words, {words[i] : i for i in range(len(words))})
+        return Words(words)
     
 
 def get_encoded(words, seed, key, index):
-    return words.words[(words.words2i[seed.words[index]] + key) % len(words.words)]
+    now_index = words.words2i[seed.words[index]]
+    res_index = (now_index + key) % len(words.words)
+    log(f"encode {seed.words[index]}({now_index}) -> {words.words[res_index]}({res_index})")
+    return words.words[res_index]
 
 
 def minus_by_module(num, dec, module):
@@ -31,14 +40,15 @@ def minus_by_module(num, dec, module):
 
 
 def get_decoded(words, seed, key, index):
-    return words.words[minus_by_module(words.words2i[seed.words[index]], key, len(words.words))]
+    now_index = words.words2i[seed.words[index]]
+    res_index = minus_by_module(now_index, key, len(words.words))
+    log(f"decode {seed.words[index]}({now_index}) -> {words.words[res_index]}({res_index})")
+    return words.words[res_index]
 
 
-def process(args, decode):
-    words = get_words(args.words)
-    seed = get_words(args.seed)
+def process(words, seed, key, decode):
     out = []
-    key = str(args.key)
+    _key = str(key)
 
     if len(seed.words) not in (12, 24):
         raise(ValueError(f"Invalid seed phrase length: {len(seed.words)}"))
@@ -46,25 +56,26 @@ def process(args, decode):
     for i in range(len(seed.words)):
         word = seed.words[i]
 
-        if not words.words2i[word]:
+        if words.words2i[word] == None:
             raise ValueError(f"Word '{word}' is not exist standard")
         if decode:
-            out.append(get_decoded(words, seed, int(key[i % len(key)]) + i, i))
+            out.append(get_decoded(words, seed, int(_key[i % len(_key)]) + i, i))
         else:
-            out.append(get_encoded(words, seed, int(key[i % len(key)]) + i, i))
+            out.append(get_encoded(words, seed, int(_key[i % len(_key)]) + i, i))
     
-    with open(args.output, "w+") as file:
-        for i in range(len(out) - 1):
-            file.write(out[i] + '\n')
-        file.write(out[len(out) - 1])
+    return out
 
 
 def seed_encode(args):
-    process(args, False)
+    words = get_words(args.words)
+    seed = get_words(args.seed)
+    return process(words, seed, args.key, False)
 
 
 def seed_decode(args):
-    process(args, True)
+    words = get_words(args.words)
+    seed = get_words(args.seed)
+    return process(words, seed, args.key, True)
 
 
 def main():
@@ -80,16 +91,26 @@ def main():
     parser.add_argument('-o', '--output',
                         default='output.txt')
     parser.add_argument('-d', '--decode',
-                        action='store_true')
+                        default = False, action='store_true')
     parser.add_argument('-v', '--verbose',
                         default = False, action='store_true')
     args = parser.parse_args()
 
+    global log_enable
+    log_enable = args.verbose
+
     try:
-        if not args.decode:
-            seed_encode(args)
-            return
-        seed_decode(args)
+        out = []
+
+        if args.decode:
+            out = seed_decode(args)
+        else:
+            out = seed_encode(args)
+        
+        with open(args.output, "w+") as file:
+            for i in range(len(out) - 1):
+                file.write(out[i] + '\n')
+            file.write(out[len(out) - 1])
 
     except FileNotFoundError as e:
         print(e)
@@ -101,6 +122,7 @@ def main():
     #     print(e)
     #     os._exit(1)
 
-main()
+if __name__ == "__main__":
+    main()
 
 
